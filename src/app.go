@@ -16,42 +16,13 @@ import (
 	r4pb "github.com/google/fhir/go/proto/google/fhir/proto/r4/core/resources/bundle_and_contained_resource_go_proto"
 )
 
-const (
-	INPUT_FOLDER                         = "data"
-	FHIR_SERVER                          = "http://localhost:8080/fhir/"
-	ORG_RESOURCE                         = "Organization"
-	LOCATION_RESOURCE                    = "Location"
-	PRACTITIONER_RESOURCE                = "Practitioner"
-	PRACTITIONER_ROLE_RESOURCE           = "PractitionerRole"
-	PATIENT_RESOURCE                     = "Patient"
-	CONDITION_RESOURCE                   = "Condition"
-	ALLERGY_RESOURCE                     = "AllergyIntolerance"
-	MEDICATION_RESOURCE                  = "Medication"
-	DEVICE_RESOURCE                      = "Device"
-	CAREPLAN_RESOURCE                    = "CarePlan"
-	CARETEAM_RESOURCE                    = "CareTeam"
-	MEDICATION_ADMINISTIONATION_RESOURCE = "MedicationAdministration"
-	MEDICATION_REQ_RESOURCE              = "MedicationRequest"
-	OBSERVATION_RESOURCE                 = "Observation"
-	DIAGNOSTIC_REPORT_RESOURCE           = "DiagnosticReport"
-	IMMUNIZATION_RESOURCE                = "Immunization"
-	ENCOUNTER_RESOURCE                   = "Encounter"
-	CLAIM_RESOURCE                       = "Claim"
-	EXPLANATION_OF_BENEFIT_RESOURCE      = "ExplanationOfBenefit"
-	DOCUMENT_REFERENCE_RESOURCE          = "DocumentReference"
-	PROVENANCE_RESOURCE                  = "Provenance"
-	SUPPLYDELIVERY_RESOURCE              = "SupplyDelivery"
-	IMAGINGSTUDY_RESOURCE                = "ImagingStudy"
-	PROCEDURE_RESOURCE                   = "Procedure"
-	timeZone                             = "Australia/Sydney"
-)
-
 func main() {
 	files := readFolder(INPUT_FOLDER)
-	for _, file := range files {
+	reorderedFiles := reorderFiles(files, resourceOrder)
+	for _, file := range reorderedFiles {
 		filepath := filepath.Join(INPUT_FOLDER, file.Name())
 		fmt.Println("Processing ", file.Name())
-		parsePatientData(filepath)
+		parseNdjsonData(filepath)
 	}
 
 }
@@ -62,7 +33,7 @@ func readFolder(inputFolderPath string) []fs.FileInfo {
 	}
 	return (files)
 }
-func parsePatientData(inputFile string) {
+func parseNdjsonData(inputFile string) {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		fmt.Println(err)
@@ -128,6 +99,9 @@ func parsePatientData(inputFile string) {
 		case *r4pb.ContainedResource_MedicationAdministration:
 			medicationAdministration := contained.GetMedicationAdministration().Id.Value
 			postToFHIRServer(line, medicationAdministration, MEDICATION_ADMINISTIONATION_RESOURCE)
+		case *r4pb.ContainedResource_MedicationStatement:
+			medicationStatement := contained.GetMedicationStatement().Id.Value
+			postToFHIRServer(line, medicationStatement, MEDICATION_ADMINISTIONATION_RESOURCE)
 		case *r4pb.ContainedResource_MedicationRequest:
 			medicationReq := contained.GetMedicationRequest().Id.Value
 			postToFHIRServer(line, medicationReq, MEDICATION_REQ_RESOURCE)
@@ -172,10 +146,12 @@ func parsePatientData(inputFile string) {
 func postToFHIRServer(body []byte, id string, resource string) {
 	url := FHIR_SERVER + resource + "/" + id
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(body))
+	req.Header.Add("x-api-key", API_KEY)
 	if err != nil {
 		panic(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// fmt.Println(req)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -185,7 +161,7 @@ func postToFHIRServer(body []byte, id string, resource string) {
 	defer resp.Body.Close()
 	// Check for successful update
 	if resp.StatusCode == 200 || resp.StatusCode == 201 {
-		fmt.Println("Resource created/updated successfully!")
+		fmt.Println("Created ", resource)
 	} else {
 		fmt.Println("Error updating:", resp.Status)
 		panic(resp.StatusCode)
